@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Management App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 1.5rem;
+            background-color: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 10px 20px rgba(0, 0, 0, 0.05);
+        }
+        .form-input {
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            transition: border-color 0.2s;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: #6366f1;
+        }
+        .form-textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        .btn-primary {
+            background-color: #6366f1;
+            color: #ffffff;
+        }
+        .btn-primary:hover {
+            background-color: #4f46e5;
+        }
+        .btn-secondary {
+            background-color: #d1d5db;
+            color: #374151;
+        }
+        .btn-secondary:hover {
+            background-color: #b9c1cb;
+        }
+        .course-item {
+            display: flex;
+            flex-direction: column;
+            padding: 1rem;
+            border-bottom: 1px solid #e5e7eb;
+            gap: 0.5rem;
+        }
+        .course-item:last-child {
+            border-bottom: none;
+        }
+        .course-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        .course-description {
+            color: #4b5563;
+        }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: #ffffff;
+            padding: 2rem;
+            border-radius: 1rem;
+            max-width: 500px;
+            text-align: center;
+            position: relative;
+        }
+        .close-btn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #9ca3af;
+        }
+        .loading-dots {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .loading-dot {
+            width: 10px;
+            height: 10px;
+            background-color: #6366f1;
+            border-radius: 50%;
+            animation: bounce 1.4s ease-in-out infinite;
+        }
+        .loading-dot:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+    </style>
+</head>
+<body class="p-4">
+
+    <div class="container">
+        <h1 class="text-3xl font-bold text-center mb-6">Course Management</h1>
+        <p id="userIdDisplay" class="text-xs text-center font-mono mb-6 break-all"></p>
+
+        <!-- Course Creation/Editing Form -->
+        <div class="mb-8 p-6 bg-gray-50 rounded-lg shadow-inner">
+            <h2 class="text-xl font-semibold mb-4" id="formTitle">Add a New Course</h2>
+            <input type="hidden" id="courseId">
+            <input type="text" id="courseTitle" class="form-input" placeholder="Course Title" required>
+            <textarea id="courseDescription" class="form-input form-textarea" placeholder="Course Description" required></textarea>
+            <div class="flex gap-2 justify-end">
+                <button id="saveButton" class="btn btn-primary">Save Course</button>
+                <button id="clearButton" class="btn btn-secondary">Clear</button>
+            </div>
+            <div class="mt-4 text-xs text-gray-500">
+                <p>Note: The AI summary feature is for courses with a detailed description. Click the "Summarize" button next to a course to see it in action.</p>
+            </div>
+        </div>
+        
+        <!-- Course List -->
+        <div id="coursesList">
+            <h2 class="text-xl font-semibold mb-4">Your Courses</h2>
+            <!-- Course items will be injected here by JavaScript -->
+        </div>
+    </div>
+
+    <!-- AI Summary Modal -->
+    <div id="summaryModal" class="modal">
+        <div class="modal-content">
+            <button id="closeModal" class="close-btn">&times;</button>
+            <h3 class="text-lg font-bold mb-4">AI-Generated Summary</h3>
+            <p id="summaryContent" class="text-gray-700"></p>
+            <div id="loadingIndicator" class="loading-dots mt-4" style="display: none;">
+                <span class="loading-dot"></span>
+                <span class="loading-dot"></span>
+                <span class="loading-dot"></span>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        setLogLevel('debug');
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Firebase Initialization
+        let app, db, auth;
+        let userId = null;
+
+        // DOM elements
+        const formTitle = document.getElementById('formTitle');
+        const courseIdInput = document.getElementById('courseId');
+        const courseTitleInput = document.getElementById('courseTitle');
+        const courseDescriptionInput = document.getElementById('courseDescription');
+        const saveButton = document.getElementById('saveButton');
+        const clearButton = document.getElementById('clearButton');
+        const coursesList = document.getElementById('coursesList');
+        const userIdDisplay = document.getElementById('userIdDisplay');
+        const summaryModal = document.getElementById('summaryModal');
+        const summaryContent = document.getElementById('summaryContent');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const closeModalButton = document.getElementById('closeModal');
+
+        // Handles user authentication and database initialization
+        const initFirebase = async () => {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                } else {
+                    if (initialAuthToken) {
+                        try {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                            userId = auth.currentUser.uid;
+                        } catch (error) {
+                            console.error("Firebase custom auth failed:", error);
+                            await signInAnonymously(auth);
+                            userId = auth.currentUser.uid;
+                        }
+                    } else {
+                        await signInAnonymously(auth);
+                        userId = auth.currentUser.uid;
+                    }
+                }
+                userIdDisplay.innerText = `User ID: ${userId}`;
+                console.log("Firebase user ID:", userId);
+                setupRealtimeListener();
+            });
+        };
+
+        // Sets up the real-time listener for courses
+        const setupRealtimeListener = () => {
+            const coursesCollectionPath = `artifacts/${appId}/users/${userId}/courses`;
+            const q = query(collection(db, coursesCollectionPath));
+
+            onSnapshot(q, (querySnapshot) => {
+                const courses = [];
+                querySnapshot.forEach((doc) => {
+                    courses.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // Sort the courses in memory by their creation timestamp (latest first)
+                courses.sort((a, b) => b.createdAt.toDate().getTime() - a.createdAt.toDate().getTime());
+
+                renderCourses(courses);
+            }, (error) => {
+                console.error("Error fetching courses: ", error);
+            });
+        };
+
+        // Renders the list of courses in the UI
+        const renderCourses = (courses) => {
+            coursesList.innerHTML = `<h2 class="text-xl font-semibold mb-4">Your Courses</h2>`;
+            if (courses.length === 0) {
+                coursesList.innerHTML += `<p class="text-gray-500 text-center">No courses added yet. Add one above!</p>`;
+                return;
+            }
+
+            courses.forEach(course => {
+                const courseEl = document.createElement('div');
+                courseEl.className = 'course-item flex-col md:flex-row md:items-center md:justify-between';
+                courseEl.innerHTML = `
+                    <div class="flex-grow">
+                        <div class="course-title">${course.title}</div>
+                        <div class="course-description">${course.description}</div>
+                    </div>
+                    <div class="flex gap-2 mt-2 md:mt-0">
+                        <button class="btn btn-primary text-sm px-3 py-1" onclick="editCourse('${course.id}')">Edit</button>
+                        <button class="btn btn-secondary text-sm px-3 py-1" onclick="deleteCourse('${course.id}')">Delete</button>
+                        <button class="btn btn-secondary text-sm px-3 py-1" onclick="summarizeCourse('${course.id}')">Summarize</button>
+                    </div>
+                `;
+                coursesList.appendChild(courseEl);
+            });
+        };
+
+        // CRUD Functions
+
+        // Create/Update a course
+        const saveCourse = async () => {
+            const courseId = courseIdInput.value;
+            const title = courseTitleInput.value.trim();
+            const description = courseDescriptionInput.value.trim();
+
+            if (!title) {
+                console.log("Course title is required.");
+                return;
+            }
+
+            const courseData = {
+                title,
+                description,
+                createdAt: serverTimestamp()
+            };
+
+            const coursesCollectionPath = `artifacts/${appId}/users/${userId}/courses`;
+            try {
+                if (courseId) {
+                    await setDoc(doc(db, coursesCollectionPath, courseId), {
+                        ...courseData,
+                        createdAt: serverTimestamp()
+                    });
+                    console.log("Course updated successfully with ID: ", courseId);
+                } else {
+                    await addDoc(collection(db, coursesCollectionPath), courseData);
+                    console.log("Course added successfully.");
+                }
+                clearForm();
+            } catch (error) {
+                console.error("Error saving course:", error);
+            }
+        };
+
+        // Delete a course
+        window.deleteCourse = async (id) => {
+            const courseDocPath = `artifacts/${appId}/users/${userId}/courses/${id}`;
+            try {
+                await deleteDoc(doc(db, courseDocPath));
+                console.log("Course deleted successfully with ID: ", id);
+            } catch (error) {
+                console.error("Error deleting course:", error);
+            }
+        };
+
+        // Edit a course (populates the form)
+        window.editCourse = (id) => {
+            const courseItem = Array.from(coursesList.children).find(el => el.querySelector(`[onclick="editCourse('${id}')"]`));
+            if (courseItem) {
+                const title = courseItem.querySelector('.course-title').innerText;
+                const description = courseItem.querySelector('.course-description').innerText;
+
+                courseIdInput.value = id;
+                courseTitleInput.value = title;
+                courseDescriptionInput.value = description;
+                formTitle.innerText = "Edit Course";
+                saveButton.innerText = "Update Course";
+            }
+        };
+
+        // Clear the form
+        const clearForm = () => {
+            courseIdInput.value = '';
+            courseTitleInput.value = '';
+            courseDescriptionInput.value = '';
+            formTitle.innerText = "Add a New Course";
+            saveButton.innerText = "Save Course";
+        };
+
+        // AI Feature: Summarize course description
+        window.summarizeCourse = async (id) => {
+            const courseItem = Array.from(coursesList.children).find(el => el.querySelector(`[onclick="editCourse('${id}')"]`));
+            if (!courseItem) return;
+
+            const description = courseItem.querySelector('.course-description').innerText;
+            if (!description || description.trim().length < 50) {
+                summaryContent.innerText = "Please provide a more detailed description to summarize.";
+                summaryModal.style.display = 'flex';
+                return;
+            }
+            
+            summaryContent.innerHTML = '';
+            loadingIndicator.style.display = 'flex';
+            summaryModal.style.display = 'flex';
+
+            const userQuery = `Summarize the following course description concisely, in a single paragraph of no more than 100 words:\n\n${description}`;
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=`;
+            
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                systemInstruction: { parts: [{ text: "You are an expert at summarizing educational content. Provide clear and concise summaries." }] },
+            };
+
+            const maxRetries = 5;
+            let retryCount = 0;
+            let delay = 1000;
+
+            while (retryCount < maxRetries) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const result = await response.json();
+                    const summary = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    
+                    if (!summary) {
+                        throw new Error("AI response is empty.");
+                    }
+                    
+                    loadingIndicator.style.display = 'none';
+                    summaryContent.innerText = summary;
+                    return;
+
+                } catch (error) {
+                    console.error(`Attempt ${retryCount + 1} failed:`, error);
+                    retryCount++;
+                    if (retryCount < maxRetries) {
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2;
+                    } else {
+                        loadingIndicator.style.display = 'none';
+                        summaryContent.innerText = "Sorry, I couldn't generate a summary right now. Please try again later.";
+                        console.error("Failed to get AI response after multiple retries.");
+                    }
+                }
+            }
+        };
+
+        // Event listeners
+        saveButton.addEventListener('click', saveCourse);
+        clearButton.addEventListener('click', clearForm);
+        closeModalButton.addEventListener('click', () => {
+            summaryModal.style.display = 'none';
+        });
+
+        // Initialize the app
+        initFirebase();
+    </script>
+
+</body>
+</html>
